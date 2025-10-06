@@ -1,0 +1,9 @@
+# No external dependencies required for basic functionality
+# The application uses only Python standard library modules
+
+# Optional dependencies for enhanced functionality:
+# argparse - included in Python 3.2+
+# pathlib - included in Python 3.4+
+# json - included in Python standard library
+# fnmatch - included in Python standard library
+# datetime - included in Python standard library
