@@ -131,8 +131,6 @@ class ConfigManager:
                 ".gitignore",
                 ".gitattributes",
                 "LICENSE",
-                "README.md",
-                "requirements.txt",
                 "setup.py",
                 "setup.cfg",
                 "pyproject.toml",

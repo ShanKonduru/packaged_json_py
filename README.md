@@ -144,6 +144,66 @@ python extractor.py my_project_20251006_143052.json
 # 4. Original project structure is perfectly recreated!
 ```
 
+## Validation
+
+The `validator.py` tool allows you to verify that an extracted directory matches the original directory perfectly.
+
+### Basic Validation
+
+```bash
+python validator.py "C:\MyProject" "extracted\MyProject_extracted_20251006_144215"
+```
+
+### Advanced Validation
+
+```bash
+python validator.py "original_path" "extracted_path" -v --save-report validation_report.json
+```
+
+### Validation Options
+
+- `original` (required): Path to original directory
+- `extracted` (required): Path to extracted directory  
+- `-v, --verbose`: Enable verbose output showing detailed comparison
+- `--save-report`: Save detailed validation report to JSON file
+
+### Quick Validation (Windows)
+
+```bash
+# Using the convenience batch script
+validate.bat "C:\MyProject" "extracted\MyProject_extracted_20251006_144215"
+
+# With verbose output
+validate.bat "C:\MyProject" "extracted\MyProject_extracted_20251006_144215" verbose
+```
+
+### Validation Features
+
+- ✅ **File Count Verification**: Ensures all files are present
+- ✅ **Directory Structure Validation**: Verifies folder hierarchy matches
+- ✅ **File Size Comparison**: Checks file sizes (with tolerance for binary files)
+- ✅ **Content Integrity**: MD5 hash comparison for text files
+- ✅ **Binary File Support**: Smart handling of base64-encoded binary files
+- ✅ **Ignore Pattern Awareness**: Respects the same ignore patterns as packaging
+- ✅ **Detailed Reporting**: Comprehensive validation reports with statistics
+
+### Complete Workflow with Validation
+
+```bash
+# 1. Package a project
+python main.py "C:\MyProject"
+# → outputs/MyProject_20251006_143052.json
+
+# 2. Extract the project
+python extractor.py "outputs\MyProject_20251006_143052.json"
+# → extracted/MyProject_extracted_20251006_144215/
+
+# 3. Validate the extraction
+python validator.py "C:\MyProject" "extracted\MyProject_extracted_20251006_144215" -v
+# → 🎉 VALIDATION PASSED: Directories match perfectly!
+
+# 4. Original project structure is perfectly recreated!
+
 ## Configuration
 
 The application uses a JSON configuration file to define ignore patterns. If no configuration file exists, a default one will be created automatically.
