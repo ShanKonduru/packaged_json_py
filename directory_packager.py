@@ -6,9 +6,10 @@ import json
 import os
 import base64
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set
 import fnmatch
 from datetime import datetime
+import re
 
 
 class DirectoryPackager:
@@ -29,10 +30,100 @@ class DirectoryPackager:
             'files': 0,
             'ignored': 0
         }
+        self.gitignore_patterns = []
+        self.use_gitignore = False
+        self.source_root = None
+    
+    def load_gitignore(self, source_directory: Path) -> bool:
+        """
+        Load .gitignore file from the source directory if it exists.
+        
+        Args:
+            source_directory: The directory being packaged
+            
+        Returns:
+            True if .gitignore was found and loaded, False otherwise
+        """
+        self.source_root = source_directory
+        gitignore_path = source_directory / '.gitignore'
+        
+        if gitignore_path.exists() and gitignore_path.is_file():
+            try:
+                with open(gitignore_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                
+                self.gitignore_patterns = []
+                for line in lines:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if line and not line.startswith('#'):
+                        self.gitignore_patterns.append(line)
+                
+                self.use_gitignore = True
+                if self.verbose:
+                    print(f"Loaded .gitignore with {len(self.gitignore_patterns)} patterns from: {gitignore_path}")
+                return True
+                
+            except Exception as e:
+                if self.verbose:
+                    print(f"Warning: Could not read .gitignore file {gitignore_path}: {e}")
+                self.use_gitignore = False
+                return False
+        else:
+            self.use_gitignore = False
+            if self.verbose:
+                print(f"No .gitignore found in source directory, using config.json patterns")
+            return False
+    
+    def matches_gitignore_pattern(self, path: Path) -> bool:
+        """
+        Check if a path matches any .gitignore pattern.
+        
+        Args:
+            path: Path to check (relative to source root)
+            
+        Returns:
+            True if the path should be ignored according to .gitignore
+        """
+        if not self.use_gitignore or not self.source_root:
+            return False
+        
+        try:
+            # Get relative path from source root
+            rel_path = path.relative_to(self.source_root)
+            path_str = str(rel_path).replace('\\', '/')
+            name = path.name
+            
+            for pattern in self.gitignore_patterns:
+                # Handle negation patterns (starting with !)
+                if pattern.startswith('!'):
+                    continue  # Skip negation patterns for now (complex logic)
+                
+                # Handle directory patterns (ending with /)
+                if pattern.endswith('/'):
+                    if path.is_dir():
+                        dir_pattern = pattern[:-1]
+                        if fnmatch.fnmatch(name, dir_pattern) or fnmatch.fnmatch(path_str, dir_pattern):
+                            return True
+                else:
+                    # Handle file and directory patterns
+                    if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(path_str, pattern):
+                        return True
+                    
+                    # Handle patterns with path separators
+                    if '/' in pattern:
+                        if fnmatch.fnmatch(path_str, pattern):
+                            return True
+        
+        except ValueError:
+            # Path is not relative to source_root
+            pass
+        
+        return False
     
     def should_ignore(self, path: Path) -> bool:
         """
-        Check if a path should be ignored based on configuration patterns.
+        Check if a path should be ignored based on .gitignore patterns or configuration patterns.
         
         Args:
             path: Path to check
@@ -40,6 +131,24 @@ class DirectoryPackager:
         Returns:
             True if the path should be ignored, False otherwise
         """
+        # First check .gitignore patterns if available
+        if self.use_gitignore and self.matches_gitignore_pattern(path):
+            if self.verbose:
+                print(f"Ignoring (gitignore pattern): {path}")
+            return True
+        
+        # If using .gitignore, don't apply config patterns (except for essential ones)
+        if self.use_gitignore:
+            # Only apply essential ignores when using .gitignore
+            name = path.name
+            essential_patterns = ['.git', '__pycache__']
+            if name in essential_patterns or (path.is_dir() and name in essential_patterns):
+                if self.verbose:
+                    print(f"Ignoring (essential pattern): {path}")
+                return True
+            return False
+        
+        # Fall back to config.json patterns when no .gitignore
         name = path.name
         
         # Check ignored file extensions
@@ -121,6 +230,9 @@ class DirectoryPackager:
         """
         if self.verbose:
             print(f"Scanning: {root_path}")
+        
+        # Load .gitignore from source directory first
+        self.load_gitignore(root_path)
         
         # Reset stats
         self.stats = {'directories': 0, 'files': 0, 'ignored': 0}
@@ -278,6 +390,33 @@ class DirectoryPackager:
         
         return True
     
+    def _is_binary_file(self, file_path: Path) -> bool:
+        """
+        Determine if a file should be treated as binary based on its extension.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            True if the file should be treated as binary
+        """
+        binary_extensions = {
+            # Office documents
+            '.xlsx', '.xls', '.docx', '.doc', '.pptx', '.ppt',
+            # Archives
+            '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2',
+            # Images
+            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico', '.tiff', '.svg',
+            # Audio/Video
+            '.mp3', '.mp4', '.avi', '.mkv', '.wav', '.ogg',
+            # Executables
+            '.exe', '.dll', '.so', '.dylib',
+            # Other binary formats
+            '.pdf', '.bin', '.dat', '.db', '.sqlite'
+        }
+        
+        return file_path.suffix.lower() in binary_extensions
+
     def _get_file_contents(self, file_path: Path) -> Dict[str, Any]:
         """
         Get file contents, handling both text and binary files.
@@ -289,6 +428,17 @@ class DirectoryPackager:
             Dictionary containing content data
         """
         try:
+            # Check if file should be treated as binary first
+            if self._is_binary_file(file_path):
+                with open(file_path, 'rb') as f:
+                    binary_content = f.read()
+                encoded_content = base64.b64encode(binary_content).decode('ascii')
+                return {
+                    'type': 'binary',
+                    'encoding': 'base64',
+                    'data': encoded_content
+                }
+            
             # Try to read as text first
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
